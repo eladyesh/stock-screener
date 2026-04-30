@@ -8,76 +8,70 @@
 
 <style>
 :root {
-    --bg: #070b14;
-    --panel: #111827;
-    --text: #e5e7eb;
-    --muted: #94a3b8;
+    --bg: #0e1626;
+    --panel: #172235;
+    --panel2: #1c2a42;
 
-    --green: #22c55e;
-    --red: #ef4444;
-    --yellow: #fbbf24;
+    --text: #f1f5f9;
+    --muted: #cbd5e1;
+
+    --green: #2ee59d;
+    --red: #ff5c75;
+    --yellow: #ffd166;
+
+    --border: rgba(255,255,255,0.08);
 }
 
 body {
     background: var(--bg);
     color: var(--text);
+    font-family: system-ui;
 }
 
 /* NAV */
 .navbar {
     background: var(--panel);
-    border-bottom: 1px solid rgba(148,163,184,0.15);
+    border-bottom: 1px solid var(--border);
 }
 
 /* CARDS */
 .card {
     background: var(--panel);
-    border: 1px solid rgba(148,163,184,0.12);
+    border: 1px solid var(--border);
     border-radius: 14px;
 }
 
-/* METRICS */
-.metric {
-    font-size: 1.4rem;
-    font-weight: 600;
+.card:hover {
+    background: var(--panel2);
+    transition: 0.2s;
 }
 
 /* BADGES */
 .badge {
-    border-radius: 999px;
     padding: 6px 10px;
-    font-size: 0.75rem;
+    border-radius: 999px;
+    font-weight: 600;
 }
 
-.buy { background: rgba(34,197,94,0.15); color: var(--green); }
-.sell { background: rgba(239,68,68,0.15); color: var(--red); }
-.hold { background: rgba(251,191,36,0.12); color: var(--yellow); }
+.buy { background: rgba(46,229,157,0.15); color: var(--green); }
+.sell { background: rgba(255,92,117,0.15); color: var(--red); }
+.hold { background: rgba(255,209,102,0.15); color: var(--yellow); }
 
 /* TICKER CARD */
-.ticker-card {
+.ticker {
     transition: 0.2s;
 }
 
-.ticker-card:hover {
-    transform: translateY(-3px);
-}
+.flash-buy { animation: flashG 1s; }
+.flash-sell { animation: flashR 1s; }
 
-/* FLASH ANIMATION */
-.flash-buy {
-    animation: flashGreen 1s ease;
-}
-
-.flash-sell {
-    animation: flashRed 1s ease;
-}
-
-@keyframes flashGreen {
-    0% { background: rgba(34,197,94,0.4); }
+@keyframes flashG {
+    0% { background: rgba(46,229,157,0.25); }
     100% { background: transparent; }
 }
 
-@keyframes flashRed {
-    0% { background: rgba(239,68,68,0.4); }
+@keyframes flashR {
+    0% { background: rgba(255,92,117,0.25); }
     100% { background: transparent; }
 }
 
@@ -85,33 +79,41 @@ body {
 .heatmap {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
 }
 
 .heatbox {
     width: 90px;
-    padding: 10px;
+    padding: 8px;
     border-radius: 10px;
     text-align: center;
-    font-size: 0.8rem;
+    font-size: 12px;
 }
 
+h5, h6 {
+    color: var(--text);
+}
+
+.small {
+    color: var(--muted);
+}
 </style>
 </head>
 
 <body>
 
-<nav class="navbar navbar-dark px-4">
+<!-- NAV -->
+<nav class="navbar navbar-dark px-3">
     <span class="navbar-brand">📊 Trading Intelligence Terminal</span>
-    <span class="text-secondary">Live System</span>
+    <span class="small">Live polling system</span>
 </nav>
 
 <div class="container mt-4">
 
-<!-- SENTIMENT GAUGE -->
+<!-- SENTIMENT -->
 <div class="card p-3 mb-3">
     <h6>Market Sentiment</h6>
-    <div id="sentimentText" class="metric">Loading...</div>
+    <div id="sentiment" class="fs-5">Loading...</div>
 </div>
 
 <!-- HEATMAP -->
@@ -120,28 +122,59 @@ body {
     <div class="heatmap" id="heatmap"></div>
 </div>
 
-<!-- TICKERS GRID -->
+<!-- EXPLANATION -->
+<div class="card p-3 mb-3">
+    <h6>Signal Logic</h6>
+    <div class="small">
+        BUY = positive news/events<br>
+        SELL = risk/legal negative events<br>
+        HOLD = neutral mixed signals
+    </div>
+</div>
+
+<!-- GRID -->
 <div class="row" id="grid"></div>
+
+<!-- HISTORY -->
+<div class="card p-3 mt-3">
+    <h6>Update Log</h6>
+    <div id="history"></div>
+</div>
 
 </div>
 
+<!-- TOAST -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:9999">
+    <div id="toast" class="toast text-bg-dark border-0">
+        <div class="toast-body" id="toastMsg"></div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
 <script>
 
-let lastSignals = {};
+let last = {};
+let history = [];
 
-function badgeClass(signal) {
+function badge(signal) {
     if (signal === "BUY") return "buy";
     if (signal === "SELL") return "sell";
     return "hold";
 }
 
-function flashClass(oldSignal, newSignal) {
-    if (!oldSignal) return "";
-    if (oldSignal !== newSignal) {
-        if (newSignal === "BUY") return "flash-buy";
-        if (newSignal === "SELL") return "flash-sell";
+function flash(oldS, newS) {
+    if (!oldS) return "";
+    if (oldS !== newS) {
+        if (newS === "BUY") return "flash-buy";
+        if (newS === "SELL") return "flash-sell";
     }
     return "";
+}
+
+function toast(msg) {
+    document.getElementById("toastMsg").innerText = msg;
+    new bootstrap.Toast(document.getElementById("toast")).show();
 }
 
 async function load() {
@@ -159,45 +192,46 @@ async function load() {
     for (let t in data) {
         const d = data[t];
 
-        // sentiment counter
         if (d.signal === "BUY") buy++;
         else if (d.signal === "SELL") sell++;
         else hold++;
 
-        // GRID CARD
-        const flash = flashClass(lastSignals[t], d.signal);
+        const f = flash(last[t], d.signal);
 
         grid.innerHTML += `
         <div class="col-md-3 mb-3">
-            <div class="card p-3 ticker-card ${flash}">
+            <div class="card p-3 ticker ${f}">
                 <h5>${t}</h5>
-                <span class="badge ${badgeClass(d.signal)}">${d.signal}</span>
-                <div class="mt-2">Score: ${d.score.toFixed(2)}</div>
-                <div>Conf: ${d.confidence.toFixed(2)}</div>
+                <span class="badge ${badge(d.signal)}">${d.signal}</span>
+                <div class="small mt-2">Score: ${d.score.toFixed(2)}</div>
+                <div class="small">Conf: ${d.confidence.toFixed(2)}</div>
             </div>
         </div>
         `;
 
-        // HEATMAP BOX
         heatmap.innerHTML += `
-            <div class="heatbox ${badgeClass(d.signal)}">
-                <b>${t}</b><br>
-                ${d.signal}
+            <div class="heatbox ${badge(d.signal)}">
+                ${t}<br>${d.signal}
             </div>
         `;
 
-        // ALERT POPUP
-        if (lastSignals[t] && lastSignals[t] !== d.signal) {
-            if (d.signal === "BUY") alert("🚀 BUY SIGNAL: " + t);
-            if (d.signal === "SELL") alert("⚠ SELL SIGNAL: " + t);
+        if (last[t] && last[t] !== d.signal) {
+            if (d.signal === "BUY") toast("🚀 BUY: " + t);
+            if (d.signal === "SELL") toast("⚠ SELL: " + t);
         }
 
-        lastSignals[t] = d.signal;
+        last[t] = d.signal;
     }
 
-    // sentiment gauge
-    document.getElementById("sentimentText").innerText =
+    document.getElementById("sentiment").innerText =
         `BUY: ${buy} | SELL: ${sell} | HOLD: ${hold}`;
+
+    history.unshift(new Date().toLocaleTimeString() + " updated");
+
+    if (history.length > 8) history.pop();
+
+    document.getElementById("history").innerHTML =
+        history.map(h => `<div class="small">${h}</div>`).join("");
 }
 
 load();
