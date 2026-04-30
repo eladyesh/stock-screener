@@ -2,17 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Market Intelligence Dashboard</title>
+<title>Market Intelligence Terminal Pro</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 
 <style>
 :root {
-    /* MUCH brighter, readable theme */
-    --bg: #f5f7fb;
+    --bg: #f6f8fc;
     --panel: #ffffff;
-    --text: #1f2937;
+
+    --text: #111827;
     --muted: #6b7280;
 
     --green: #16a34a;
@@ -33,7 +33,7 @@ body {
     border-bottom: 1px solid var(--border);
 }
 
-/* CARDS */
+/* CARD */
 .card {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -43,10 +43,9 @@ body {
 
 /* BADGES */
 .badge {
-    padding: 6px 10px;
     border-radius: 999px;
+    padding: 6px 10px;
     font-weight: 600;
-    font-size: 12px;
 }
 
 .buy { background: rgba(22,163,74,0.12); color: var(--green); }
@@ -54,8 +53,8 @@ body {
 .hold { background: rgba(217,119,6,0.12); color: var(--yellow); }
 
 /* FLASH */
-.flash-buy { animation: g 0.8s; }
-.flash-sell { animation: r 0.8s; }
+.flash-buy { animation: g 0.7s; }
+.flash-sell { animation: r 0.7s; }
 
 @keyframes g {
     0% { background: rgba(22,163,74,0.15); }
@@ -67,34 +66,14 @@ body {
     100% { background: transparent; }
 }
 
-/* HEATMAP */
-.heatmap {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
+/* GRID */
+.small { color: var(--muted); }
 
-.heatbox {
-    width: 85px;
-    padding: 8px;
-    border-radius: 10px;
-    text-align: center;
+/* NEWS PANEL */
+.news-item {
     font-size: 12px;
-    border: 1px solid var(--border);
-}
-
-/* TEXT */
-.small {
-    color: var(--muted);
-}
-
-/* CLEANER UI */
-h5, h6 {
-    font-weight: 600;
-}
-
-.progress {
-    height: 6px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
 }
 </style>
 </head>
@@ -102,8 +81,8 @@ h5, h6 {
 <body>
 
 <nav class="navbar navbar-light px-3">
-    <span class="navbar-brand">📊 Market Intelligence Dashboard</span>
-    <span class="small">Polling mode (10s refresh)</span>
+    <span class="navbar-brand">📊 Market Intelligence Pro</span>
+    <span class="small">Live System (Polling)</span>
 </nav>
 
 <div class="container mt-4">
@@ -114,26 +93,10 @@ h5, h6 {
     <div id="sentiment" class="fs-5">Loading...</div>
 </div>
 
-<!-- TOP MOMENTUM -->
+<!-- TOP MOVERS -->
 <div class="card p-3 mb-3">
-    <h6>🔥 Top Momentum Stocks</h6>
+    <h6>🔥 Top Momentum</h6>
     <div id="top"></div>
-</div>
-
-<!-- EXPLANATION -->
-<div class="card p-3 mb-3">
-    <h6>Signal Explanation</h6>
-    <div class="small">
-        BUY → positive news & strong sentiment<br>
-        SELL → risk / negative event pressure<br>
-        HOLD → mixed or unclear signals
-    </div>
-</div>
-
-<!-- HEATMAP -->
-<div class="card p-3 mb-3">
-    <h6>Heatmap</h6>
-    <div class="heatmap" id="heatmap"></div>
 </div>
 
 <!-- GRID -->
@@ -141,7 +104,7 @@ h5, h6 {
 
 <!-- HISTORY -->
 <div class="card p-3 mt-3">
-    <h6>Live Updates</h6>
+    <h6>Activity Log</h6>
     <div id="history"></div>
 </div>
 
@@ -181,10 +144,28 @@ function toast(msg) {
     new bootstrap.Toast(document.getElementById("toast")).show();
 }
 
+/* 🧠 REAL "AI STYLE" EXPLANATION */
 function explain(d) {
-    if (d.score > 0.5) return "Strong positive sentiment detected.";
-    if (d.score < -0.5) return "Negative sentiment / risk detected.";
-    return "Neutral or mixed sentiment.";
+
+    const s = d.score;
+
+    if (s > 0.7) {
+        return "High conviction bullish sentiment driven by positive news flow and momentum.";
+    }
+
+    if (s > 0.3) {
+        return "Moderate bullish bias with mixed but positive signals.";
+    }
+
+    if (s < -0.7) {
+        return "Strong bearish pressure from negative sentiment / risk events.";
+    }
+
+    if (s < -0.3) {
+        return "Mild bearish sentiment detected across recent signals.";
+    }
+
+    return "Neutral market conditions with no strong directional bias.";
 }
 
 async function load() {
@@ -193,20 +174,17 @@ async function load() {
     const data = await res.json();
 
     const grid = document.getElementById("grid");
-    const heatmap = document.getElementById("heatmap");
 
     grid.innerHTML = "";
-    heatmap.innerHTML = "";
 
     let buy=0, sell=0, hold=0;
 
-    // leaderboard
-    let top = Object.entries(data)
-        .sort((a,b) => b[1].score - a[1].score)
+    let sorted = Object.entries(data)
+        .sort((a,b)=>b[1].score - a[1].score)
         .slice(0,5);
 
     document.getElementById("top").innerHTML =
-        top.map(([t,d]) =>
+        sorted.map(([t,d]) =>
             `<div class="d-flex justify-content-between small">
                 <span>${t}</span>
                 <span>${d.score.toFixed(2)}</span>
@@ -224,8 +202,9 @@ async function load() {
         const f = flash(last[t], d.signal);
 
         grid.innerHTML += `
-        <div class="col-md-3 mb-3">
+        <div class="col-md-4 mb-3">
             <div class="card p-3 ${f}">
+
                 <div class="d-flex justify-content-between">
                     <h6>${t}</h6>
                     <span class="badge ${badge(d.signal)}">${d.signal}</span>
@@ -242,23 +221,25 @@ async function load() {
 
                 <div class="progress mt-2">
                     <div class="progress-bar"
-                         style="width:${Math.min(100,Math.abs(d.score)*100)}%;
-                         background:${d.score>0?"#16a34a":"#dc2626"}">
+                        style="width:${Math.min(100,Math.abs(d.score)*100)}%;
+                        background:${d.score>0?"#16a34a":"#dc2626"}">
                     </div>
                 </div>
+
+                <!-- 📰 NEWS PANEL (expects backend support) -->
+                <div class="mt-3 small">
+                    <b>Latest News:</b>
+                    <div class="news-item">No backend news connected yet</div>
+                    <div class="news-item">Add /news endpoint for real headlines</div>
+                </div>
+
             </div>
         </div>
         `;
 
-        heatmap.innerHTML += `
-            <div class="heatbox ${badge(d.signal)}">
-                ${t}<br>${d.signal}
-            </div>
-        `;
-
         if (last[t] && last[t] !== d.signal) {
-            if (d.signal==="BUY") toast("🚀 BUY SIGNAL: " + t);
-            if (d.signal==="SELL") toast("⚠ SELL SIGNAL: " + t);
+            if (d.signal==="BUY") toast("🚀 BUY " + t);
+            if (d.signal==="SELL") toast("⚠ SELL " + t);
         }
 
         last[t] = d.signal;
@@ -267,11 +248,11 @@ async function load() {
     document.getElementById("sentiment").innerText =
         `BUY: ${buy} | SELL: ${sell} | HOLD: ${hold}`;
 
-    history.unshift(new Date().toLocaleTimeString() + " updated");
-    if (history.length > 8) history.pop();
+    history.unshift(new Date().toLocaleTimeString() + " update");
+    if (history.length > 10) history.pop();
 
     document.getElementById("history").innerHTML =
-        history.map(h => `<div class="small">${h}</div>`).join("");
+        history.map(h=>`<div class="small">${h}</div>`).join("");
 }
 
 load();
