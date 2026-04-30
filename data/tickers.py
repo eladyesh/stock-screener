@@ -10,7 +10,8 @@ def get_nasdaq100_tickers():
     res = requests.get(url, headers=HEADERS, timeout=20)
     res.raise_for_status()
 
-    tables = pd.read_html(res.text)
+    from io import StringIO
+    tables = pd.read_html(StringIO(res.text))
     for table in tables:
         if "Ticker" in table.columns:
             return table["Ticker"].dropna().astype(str).tolist()
