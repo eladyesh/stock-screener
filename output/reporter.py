@@ -2,7 +2,7 @@ import pandas as pd
 from signals.engine import compute_signal
 
 
-def     generate_report(sentiment_map):
+def generate_report(sentiment_map):
     rows = []
 
     for ticker, data in sentiment_map.items():
