@@ -1,73 +1,79 @@
-import feedparser
 import pandas as pd
 import requests
 import nltk
 import yfinance as yf
-import os
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import urllib.parse
+import feedparser
+import time
+from functools import lru_cache
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
+from services.stock_fetcher import get_nasdaq100_tickers
 
-NEWS_API_KEY = os.getenv("NEWS_API_KEY") or "98ada878b35141fa872c7a7839e220b7"
-
+# ======================
+# SETUP
+# ======================
 nltk.download("vader_lexicon", quiet=True)
 analyzer = SentimentIntensityAnalyzer()
 
-# ======================
-# ORIGINAL TICKER FUNCTIONS (UNCHANGED)
-# ======================
-def get_nasdaq100_tickers():
-    url = "https://en.wikipedia.org/wiki/NASDAQ-100"
-    res = requests.get(url, headers=HEADERS, timeout=20)
-    res.raise_for_status()
-
-    tables = pd.read_html(res.text)
-    for table in tables:
-        if "Ticker" in table.columns:
-            return table["Ticker"].dropna().astype(str).tolist()
-
-    return []
-
-
-def get_sp500_tickers():
-    url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-    res = requests.get(url, headers=HEADERS, timeout=20)
-    res.raise_for_status()
-
-    df = pd.read_html(res.text)[0]
-    tickers = df["Symbol"].dropna().astype(str).tolist()
-    return [t.replace(".", "-") for t in tickers]
-
-
-def get_nasdaq_stocks():
-    url = "https://datahub.io/core/nasdaq-listings/r/nasdaq-listed-symbols.csv"
-    df = pd.read_csv(url)
-    df.to_csv("nasdaq_listings.csv", index=False)
-    return df["Symbol"].dropna().astype(str).unique().tolist()
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 # ======================
-# NEW: NEWSAPI HEADLINES
+# FINANCE KEYWORDS BOOST
 # ======================
+POSITIVE_WORDS = {
+    "beats", "surge", "growth", "profit", "upgrade", "strong", "record",
+    "bullish", "outperform", "buyback", "expansion"
+}
+
+NEGATIVE_WORDS = {
+    "miss", "drop", "loss", "downgrade", "weak", "lawsuit",
+    "bearish", "decline", "cut", "fraud", "risk"
+}
+
+def finance_boost(text):
+    text_lower = text.lower()
+
+    score = 0
+    for word in POSITIVE_WORDS:
+        if word in text_lower:
+            score += 0.15
+
+    for word in NEGATIVE_WORDS:
+        if word in text_lower:
+            score -= 0.15
+
+    return score
+
+# ======================
+# GOOGLE NEWS RSS (NO API)
+# ======================
+@lru_cache(maxsize=256)
 def get_news_headlines(ticker, limit=10):
-    query = urllib.parse.quote(ticker)
+    query = urllib.parse.quote(f"{ticker} stock")
 
     url = f"https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"
-
     feed = feedparser.parse(url)
 
     headlines = []
-    for entry in feed.entries[:limit]:
+    seen = set()
+
+    for entry in feed.entries:
         title = entry.get("title", "").strip()
-        if title:
+
+        # basic dedup (normalized)
+        key = title.lower()
+        if title and key not in seen:
+            seen.add(key)
             headlines.append(title)
+
+        if len(headlines) >= limit:
+            break
 
     return headlines
 
 # ======================
-# SENTIMENT (UNCHANGED)
+# SENTIMENT SCORING (UPGRADED)
 # ======================
 def score_sentiment(texts):
     if not texts:
@@ -77,29 +83,39 @@ def score_sentiment(texts):
             "sentiment_score": None
         }
 
-    scores = [analyzer.polarity_scores(text)["compound"] for text in texts]
-    avg_compound = sum(scores) / len(scores)
+    scores = []
 
-    if avg_compound >= 0.20:
-        label = "high_positive"
-    elif avg_compound <= -0.20:
-        label = "negative"
+    for text in texts:
+        base = analyzer.polarity_scores(text)["compound"]
+        boost = finance_boost(text)
+
+        final_score = max(min(base + boost, 1), -1)
+        scores.append(final_score)
+
+    avg = sum(scores) / len(scores)
+
+    # stronger thresholds
+    if avg >= 0.25:
+        label = "bullish"
+    elif avg <= -0.25:
+        label = "bearish"
     else:
         label = "neutral"
 
-    sentiment_score = round((avg_compound + 1) * 50, 1)
+    sentiment_score = round((avg + 1) * 50, 1)
 
     return {
-        "compound": round(avg_compound, 4),
+        "compound": round(avg, 4),
         "sentiment_label": label,
         "sentiment_score": sentiment_score
     }
 
 # ======================
-# PIPELINE (UNCHANGED)
+# PIPELINE
 # ======================
 def get_ticker_sentiment(ticker, limit=10):
-    headlines = get_news_headlines(ticker, limit=limit)
+    headlines = get_news_headlines(ticker, limit)
+
     result = score_sentiment(headlines)
 
     return {
@@ -109,14 +125,12 @@ def get_ticker_sentiment(ticker, limit=10):
         "headlines": headlines
     }
 
-
-def rank_tickers_by_sentiment(tickers, limit=10):
+def rank_tickers_by_sentiment(tickers, limit=10, delay=0.2):
     rows = []
 
     for ticker in tickers:
         try:
-            result = get_ticker_sentiment(ticker, limit=limit)
-            print(result)
+            result = get_ticker_sentiment(ticker, limit)
 
             rows.append({
                 "ticker": result["ticker"],
@@ -125,6 +139,8 @@ def rank_tickers_by_sentiment(tickers, limit=10):
                 "sentiment_label": result["sentiment_label"],
                 "sentiment_score": result["sentiment_score"]
             })
+
+            time.sleep(delay)  # avoid hammering RSS
 
         except Exception as e:
             rows.append({
@@ -138,14 +154,14 @@ def rank_tickers_by_sentiment(tickers, limit=10):
     df = pd.DataFrame(rows)
     return df.sort_values(by="compound", ascending=False, na_position="last")
 
+
 # ======================
 # MAIN
 # ======================
 if __name__ == "__main__":
     tickers = get_nasdaq100_tickers()
 
-    # score first 25 tickers
-    df = rank_tickers_by_sentiment(tickers)
+    df = rank_tickers_by_sentiment(tickers[:30])  # test smaller batch first
     print(df.head(10))
 
-    df.to_csv("ticker_sentiment_ranking.csv", index=False)
+    df.to_csv("ticker_sentiment_ranking_v2.csv", index=False)
